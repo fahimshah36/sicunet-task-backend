@@ -1,0 +1,14 @@
+{
+  "users": [
+    {
+      "id": 1,
+      "firstName": "Samantha",
+      "lastName": "Martinez",
+      "username": "samanthal",
+      "email": "samantha@example.com",
+      "birthDate": "1997-09-03",
+      "weight": 55.48,
+      "image": "https://dummyimage.com/128x128/000/fff&text=S"
+    }
+  ]
+}
