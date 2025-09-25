@@ -34,8 +34,9 @@ app.use('/api', (req, res, next) => {
   if (openGet) return next();
 
   const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer '))
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return res.status(401).json({ error: 'Unauthorized' });
+  }
 
   const token = authHeader.split(' ')[1];
   const db = router.db;
@@ -98,14 +99,8 @@ app.get('/api/users', (req, res) => {
   });
 });
 
-
-
 // JSON Server router for /api
 app.use('/api', router);
-
-// Serve React build
-// const staticPath = path.join(__dirname, 'static');
-// app.use(express.static(staticPath));
 
 // Serve static files from the React app
 app.get("*", (req, res) => {
@@ -117,11 +112,9 @@ app.use((req, res, next) => {
   res.status(404).json({ message: "404 Not Found" });
 });
 
-// Routes
-app.get("/", (_, res) => {
-  res.send("API is running...");
-});
+// ✅ Don’t call app.listen on Vercel
+// const PORT = process.env.PORT || 3000;
+// app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+// ✅ Export for Vercel serverless
 module.exports = app;
