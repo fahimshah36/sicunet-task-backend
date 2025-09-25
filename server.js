@@ -11,7 +11,7 @@ app.use(middlewares);
 app.use(express.json());
 
 // Login endpoint
-app.post('/login', (req, res) => {
+app.post('/auth', (req, res) => {
   const { username, password } = req.body;
   const db = router.db; // lowdb instance
   const user = db.get('users').find({ username, password }).value();
