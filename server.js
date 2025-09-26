@@ -1,8 +1,26 @@
 const express = require("express");
 const crypto = require("crypto");
 const { Redis } = require("@upstash/redis");
+const multer = require("multer");
+const FormData = require("form-data");
+const fetch = require("node-fetch");
 
 const app = express();
+
+// Configure multer for file uploads (memory storage)
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith("image/")) {
+      cb(null, true);
+    } else {
+      cb(new Error("Only image files are allowed"), false);
+    }
+  },
+});
 
 // CORS middleware - Allow all origins
 app.use((req, res, next) => {
@@ -87,10 +105,84 @@ app.get("/", async (req, res) => {
       createUser: "POST /api/users",
       updateUser: "PUT /api/users/:id",
       deleteUser: "DELETE /api/users/:id",
+      uploadImage: "POST /api/upload-image",
       stats: "GET /api/stats",
     },
     storage: "Upstash Redis",
   });
+});
+
+// Image upload endpoint (public - no auth required)
+app.post("/api/upload-image", upload.single("file"), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        error: "No file uploaded",
+        success: false,
+      });
+    }
+
+    // Create FormData for tmpfiles.org
+    const formData = new FormData();
+    formData.append("file", req.file.buffer, {
+      filename: req.file.originalname,
+      contentType: req.file.mimetype,
+    });
+
+    // Upload to tmpfiles.org
+    const response = await fetch("https://tmpfiles.org/api/v1/upload", {
+      method: "POST",
+      body: formData,
+      headers: formData.getHeaders(),
+    });
+
+    if (!response.ok) {
+      throw new Error(`tmpfiles.org responded with status: ${response.status}`);
+    }
+
+    const data = await response.json();
+
+    if (data.status === "success") {
+      // Convert to direct download URL
+      const imageUrl = data.data.url.replace(
+        "tmpfiles.org/",
+        "tmpfiles.org/dl/"
+      );
+
+      res.json({
+        success: true,
+        message: "Image uploaded successfully",
+        data: {
+          url: imageUrl,
+          originalUrl: data.data.url,
+          filename: req.file.originalname,
+          size: req.file.size,
+          mimetype: req.file.mimetype,
+        },
+      });
+    } else {
+      throw new Error("tmpfiles.org upload failed");
+    }
+  } catch (error) {
+    console.error("Image upload error:", error);
+
+    // Handle multer errors
+    if (error instanceof multer.MulterError) {
+      if (error.code === "LIMIT_FILE_SIZE") {
+        return res.status(400).json({
+          success: false,
+          error: "File too large. Maximum size is 5MB.",
+        });
+      }
+    }
+
+    res.status(500).json({
+      success: false,
+      error: "Failed to upload image. Please try again.",
+      details:
+        process.env.NODE_ENV === "development" ? error.message : undefined,
+    });
+  }
 });
 
 // Login endpoint
@@ -209,8 +301,14 @@ async function validateToken(req, res, next) {
   }
 }
 
-// Apply auth middleware to all /api routes
-app.use("/api", validateToken);
+// Apply auth middleware to all /api routes except upload-image
+app.use("/api", (req, res, next) => {
+  // Skip auth for image upload endpoint
+  if (req.path === "/upload-image") {
+    return next();
+  }
+  return validateToken(req, res, next);
+});
 
 // GET /api/users with pagination & sorting
 app.get("/api/users", async (req, res) => {
@@ -542,6 +640,7 @@ app.use("*", (req, res) => {
       "POST /api/users",
       "PUT /api/users/:id",
       "DELETE /api/users/:id",
+      "POST /api/upload-image",
       "GET /api/profile",
       "PUT /api/profile",
       "GET /api/stats",
