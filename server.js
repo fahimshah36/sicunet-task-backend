@@ -4,24 +4,6 @@ const { Redis } = require("@upstash/redis");
 const multer = require("multer");
 const FormData = require("form-data");
 const fetch = require("node-fetch");
-
-const app = express();
-
-// Configure multer for file uploads (memory storage)
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB limit
-  },
-  fileFilter: (req, file, cb) => {
-    if (file.mimetype.startsWith("image/")) {
-      cb(null, true);
-    } else {
-      cb(new Error("Only image files are allowed"), false);
-    }
-  },
-});
-
 // CORS middleware - Ultra-permissive version that works with everything
 app.use((req, res, next) => {
   // Set CORS headers for all requests
@@ -39,6 +21,22 @@ app.use((req, res, next) => {
 
   console.log(`${req.method} request received for: ${req.url}`);
   next();
+});
+const app = express();
+
+// Configure multer for file uploads (memory storage)
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith("image/")) {
+      cb(null, true);
+    } else {
+      cb(new Error("Only image files are allowed"), false);
+    }
+  },
 });
 
 // Body parser middleware
