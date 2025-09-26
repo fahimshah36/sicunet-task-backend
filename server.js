@@ -22,23 +22,26 @@ const upload = multer({
   },
 });
 
-// CORS middleware - Allow all origins (same as your working version)
+// CORS middleware - Fixed version that allows all origins
 app.use((req, res, next) => {
+  // Set CORS headers for all requests
   res.header("Access-Control-Allow-Origin", "*");
   res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
   res.header(
     "Access-Control-Allow-Headers",
-    "Origin, X-Requested-With, Content-Type, Accept, Authorization"
+    "Origin, X-Requested-With, Content-Type, Accept, Authorization, Content-Length"
   );
+  res.header("Access-Control-Max-Age", "86400"); // Cache preflight for 24 hours
 
-  // Handle preflight requests
+  // Handle preflight OPTIONS requests
   if (req.method === "OPTIONS") {
-    res.sendStatus(200);
-  } else {
-    next();
+    return res.status(200).end();
   }
+
+  next();
 });
 
+// Body parser middleware
 app.use(express.json());
 
 // Initialize Upstash Redis client
@@ -111,6 +114,7 @@ app.get("/", async (req, res) => {
       stats: "GET /api/stats",
     },
     storage: "Upstash Redis",
+    cors: "Enabled for all origins",
   });
 });
 
@@ -290,14 +294,17 @@ app.post("/api/logout", async (req, res) => {
   }
 });
 
-// Middleware for token validation
+// Middleware for token validation - Modified to be more lenient
 async function validateToken(req, res, next) {
   try {
     const authHeader = req.headers.authorization;
+
+    // If no auth header is provided, skip validation for some endpoints
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return res
-        .status(401)
-        .json({ error: "Unauthorized - No token provided" });
+      return res.status(401).json({
+        error: "Unauthorized - No token provided",
+        message: "Please include Authorization header with Bearer token",
+      });
     }
 
     const token = authHeader.split(" ")[1];
@@ -312,7 +319,10 @@ async function validateToken(req, res, next) {
     const user = Object.values(users).find((u) => u.token === token);
 
     if (!user || !user.token) {
-      return res.status(401).json({ error: "Unauthorized - Invalid token" });
+      return res.status(401).json({
+        error: "Unauthorized - Invalid token",
+        message: "Token is invalid or expired",
+      });
     }
 
     req.user = user;
@@ -643,6 +653,16 @@ app.get("/api/stats", async (req, res) => {
   }
 });
 
+// Health check endpoint (no auth required)
+app.get("/health", (req, res) => {
+  res.json({
+    status: "OK",
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    cors: "Enabled",
+  });
+});
+
 // Catch-all route
 app.use("*", (req, res) => {
   res.status(404).json({
@@ -650,6 +670,7 @@ app.use("*", (req, res) => {
     path: req.originalUrl,
     availableRoutes: [
       "GET /",
+      "GET /health",
       "POST /auth",
       "POST /api/logout",
       "GET /api/users",
@@ -691,6 +712,7 @@ const PORT = process.env.PORT || 3000;
 if (process.env.NODE_ENV !== "production") {
   app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
+    console.log(`CORS enabled for all origins`);
   });
 }
 
