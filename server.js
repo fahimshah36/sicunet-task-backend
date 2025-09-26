@@ -39,8 +39,8 @@ async function initializeUsers() {
         },
       };
 
-      // Store users in Redis
-      await redis.set("users", JSON.stringify(defaultUsers));
+      // Store users in Redis as an object (Upstash handles JSON automatically)
+      await redis.set("users", defaultUsers);
 
       // Also store a counter for new user IDs
       await redis.set("user_counter", 2);
@@ -105,7 +105,11 @@ app.post("/auth", async (req, res) => {
 
     // Get users from Redis store
     const usersData = await redis.get("users");
-    const users = usersData ? JSON.parse(usersData) : {};
+    const users = usersData
+      ? typeof usersData === "string"
+        ? JSON.parse(usersData)
+        : usersData
+      : {};
 
     // Find user
     const user = Object.values(users).find(
@@ -121,7 +125,7 @@ app.post("/auth", async (req, res) => {
 
     // Update user token in Redis store
     users[user.id] = { ...users[user.id], token: accessToken };
-    await redis.set("users", JSON.stringify(users));
+    await redis.set("users", users);
 
     // Return user and token (excluding password)
     const { password: _, ...userWithoutPassword } = {
@@ -152,12 +156,16 @@ app.post("/api/logout", async (req, res) => {
 
     // Get users and clear the token
     const usersData = await redis.get("users");
-    const users = usersData ? JSON.parse(usersData) : {};
+    const users = usersData
+      ? typeof usersData === "string"
+        ? JSON.parse(usersData)
+        : usersData
+      : {};
     const user = Object.values(users).find((u) => u.token === token);
 
     if (user) {
       users[user.id] = { ...users[user.id], token: "" };
-      await redis.set("users", JSON.stringify(users));
+      await redis.set("users", users);
     }
 
     res.json({ message: "Logout successful" });
@@ -181,7 +189,11 @@ async function validateToken(req, res, next) {
 
     // Get users from Redis store
     const usersData = await redis.get("users");
-    const users = usersData ? JSON.parse(usersData) : {};
+    const users = usersData
+      ? typeof usersData === "string"
+        ? JSON.parse(usersData)
+        : usersData
+      : {};
     const user = Object.values(users).find((u) => u.token === token);
 
     if (!user || !user.token) {
@@ -205,7 +217,11 @@ app.get("/api/users", async (req, res) => {
   try {
     // Get users from Redis store
     const usersData = await redis.get("users");
-    const users = usersData ? JSON.parse(usersData) : {};
+    const users = usersData
+      ? typeof usersData === "string"
+        ? JSON.parse(usersData)
+        : usersData
+      : {};
 
     // Convert to array and remove sensitive data
     let usersList = Object.values(users).map(
@@ -267,7 +283,11 @@ app.post("/api/users", async (req, res) => {
 
     // Get existing users and counter
     const usersData = await redis.get("users");
-    const users = usersData ? JSON.parse(usersData) : {};
+    const users = usersData
+      ? typeof usersData === "string"
+        ? JSON.parse(usersData)
+        : usersData
+      : {};
     const userCounter = (await redis.get("user_counter")) || 0;
 
     // Check if user already exists
@@ -294,7 +314,7 @@ app.post("/api/users", async (req, res) => {
 
     // Update users and counter in Redis
     users[newUserId] = newUser;
-    await redis.set("users", JSON.stringify(users));
+    await redis.set("users", users);
     await redis.set("user_counter", newUserId);
 
     // Return user without password
@@ -321,7 +341,11 @@ app.put("/api/users/:id", async (req, res) => {
 
     // Get users from Redis
     const usersData = await redis.get("users");
-    const users = usersData ? JSON.parse(usersData) : {};
+    const users = usersData
+      ? typeof usersData === "string"
+        ? JSON.parse(usersData)
+        : usersData
+      : {};
 
     if (!users[userId]) {
       return res.status(404).json({ error: "User not found" });
@@ -378,7 +402,11 @@ app.delete("/api/users/:id", async (req, res) => {
 
     // Get users from Redis
     const usersData = await redis.get("users");
-    const users = usersData ? JSON.parse(usersData) : {};
+    const users = usersData
+      ? typeof usersData === "string"
+        ? JSON.parse(usersData)
+        : usersData
+      : {};
 
     if (!users[userId]) {
       return res.status(404).json({ error: "User not found" });
@@ -422,7 +450,11 @@ app.get("/api/debug", async (req, res) => {
 
   try {
     const usersData = await redis.get("users");
-    const users = usersData ? JSON.parse(usersData) : {};
+    const users = usersData
+      ? typeof usersData === "string"
+        ? JSON.parse(usersData)
+        : usersData
+      : {};
     const userCounter = (await redis.get("user_counter")) || 0;
 
     res.json({
