@@ -105,7 +105,7 @@ app.get("/", async (req, res) => {
       createUser: "POST /api/users",
       updateUser: "PUT /api/users/:id",
       deleteUser: "DELETE /api/users/:id",
-      uploadImage: "POST /api/upload-image",
+      uploadImage: "POST /api/upload",
       stats: "GET /api/stats",
     },
     storage: "Upstash Redis",
@@ -113,7 +113,7 @@ app.get("/", async (req, res) => {
 });
 
 // Image upload endpoint (public - no auth required)
-app.post("/api/upload-image", upload.single("file"), async (req, res) => {
+app.post("/api/upload", upload.single("file"), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({
@@ -304,7 +304,7 @@ async function validateToken(req, res, next) {
 // Apply auth middleware to all /api routes except upload-image
 app.use("/api", (req, res, next) => {
   // Skip auth for image upload endpoint
-  if (req.path === "/upload-image") {
+  if (req.path === "/upload") {
     return next();
   }
   return validateToken(req, res, next);
@@ -640,7 +640,7 @@ app.use("*", (req, res) => {
       "POST /api/users",
       "PUT /api/users/:id",
       "DELETE /api/users/:id",
-      "POST /api/upload-image",
+      "POST /api/upload",
       "GET /api/profile",
       "PUT /api/profile",
       "GET /api/stats",
