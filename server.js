@@ -3,6 +3,24 @@ const crypto = require("crypto");
 const { Redis } = require("@upstash/redis");
 
 const app = express();
+
+// CORS middleware - Allow all origins
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  res.header(
+    "Access-Control-Allow-Headers",
+    "Origin, X-Requested-With, Content-Type, Accept, Authorization"
+  );
+
+  // Handle preflight requests
+  if (req.method === "OPTIONS") {
+    res.sendStatus(200);
+  } else {
+    next();
+  }
+});
+
 app.use(express.json());
 
 // Initialize Upstash Redis client
@@ -377,7 +395,7 @@ app.put("/api/users/:id", async (req, res) => {
     };
 
     users[userId] = updatedUser;
-    await redis.set("users", JSON.stringify(users));
+    await redis.set("users", users);
 
     // Return user without password
     const { password: _, token, ...userWithoutPassword } = updatedUser;
@@ -419,7 +437,7 @@ app.delete("/api/users/:id", async (req, res) => {
 
     // Delete user
     delete users[userId];
-    await redis.set("users", JSON.stringify(users));
+    await redis.set("users", users);
 
     res.json({ message: "User deleted successfully" });
   } catch (error) {
