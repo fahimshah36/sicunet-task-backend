@@ -22,22 +22,22 @@ const upload = multer({
   },
 });
 
-// CORS middleware - Fixed version that allows all origins
+// CORS middleware - Ultra-permissive version that works with everything
 app.use((req, res, next) => {
   // Set CORS headers for all requests
   res.header("Access-Control-Allow-Origin", "*");
-  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-  res.header(
-    "Access-Control-Allow-Headers",
-    "Origin, X-Requested-With, Content-Type, Accept, Authorization, Content-Length"
-  );
-  res.header("Access-Control-Max-Age", "86400"); // Cache preflight for 24 hours
+  res.header("Access-Control-Allow-Methods", "*");
+  res.header("Access-Control-Allow-Headers", "*");
+  res.header("Access-Control-Max-Age", "86400");
+  res.header("Access-Control-Allow-Credentials", "true");
 
-  // Handle preflight OPTIONS requests
+  // Handle preflight OPTIONS requests immediately
   if (req.method === "OPTIONS") {
-    return res.status(200).end();
+    console.log(`OPTIONS request received for: ${req.url}`);
+    return res.status(200).json({ message: "CORS preflight successful" });
   }
 
+  console.log(`${req.method} request received for: ${req.url}`);
   next();
 });
 
@@ -211,15 +211,23 @@ app.post("/upload", upload.single("file"), async (req, res) => {
   }
 });
 
-// Login endpoint
+// Login endpoint - Enhanced with better error handling
 app.post("/auth", async (req, res) => {
   try {
+    console.log("Auth request received:", {
+      body: req.body,
+      headers: req.headers,
+      method: req.method,
+    });
+
     const { username, password } = req.body;
 
     if (!username || !password) {
-      return res
-        .status(400)
-        .json({ error: "Username and password are required" });
+      console.log("Missing credentials");
+      return res.status(400).json({
+        error: "Username and password are required",
+        success: false,
+      });
     }
 
     // Get users from Redis store
@@ -230,13 +238,19 @@ app.post("/auth", async (req, res) => {
         : usersData
       : {};
 
+    console.log("Available users:", Object.keys(users));
+
     // Find user
     const user = Object.values(users).find(
       (u) => u.username === username && u.password === password
     );
 
     if (!user) {
-      return res.status(401).json({ error: "Invalid credentials" });
+      console.log("Invalid credentials for username:", username);
+      return res.status(401).json({
+        error: "Invalid credentials",
+        success: false,
+      });
     }
 
     // Generate access token
@@ -252,14 +266,22 @@ app.post("/auth", async (req, res) => {
       token: accessToken,
     };
 
+    console.log("Login successful for user:", username);
+
     res.json({
       message: "Login successful",
+      success: true,
       accessToken,
       user: userWithoutPassword,
     });
   } catch (error) {
     console.error("Auth error:", error);
-    res.status(500).json({ error: "Internal server error" });
+    res.status(500).json({
+      error: "Internal server error",
+      success: false,
+      details:
+        process.env.NODE_ENV === "development" ? error.message : undefined,
+    });
   }
 });
 
