@@ -6,22 +6,6 @@ const FormData = require("form-data");
 const fetch = require("node-fetch");
 
 const app = express();
-// CORS middleware - Allow all origins
-app.use((req, res, next) => {
-  res.header("Access-Control-Allow-Origin", "*");
-  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-  res.header(
-    "Access-Control-Allow-Headers",
-    "Origin, X-Requested-With, Content-Type, Accept, Authorization"
-  );
-
-  // Handle preflight requests
-  if (req.method === "OPTIONS") {
-    res.sendStatus(200);
-  } else {
-    next();
-  }
-});
 
 // Configure multer for file uploads (memory storage)
 const upload = multer({
@@ -38,9 +22,24 @@ const upload = multer({
   },
 });
 
-// Parse JSON and URL-encoded data
-app.use(express.json({ limit: "10mb" }));
-app.use(express.urlencoded({ extended: true, limit: "10mb" }));
+// CORS middleware - Allow all origins (same as your working version)
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  res.header(
+    "Access-Control-Allow-Headers",
+    "Origin, X-Requested-With, Content-Type, Accept, Authorization"
+  );
+
+  // Handle preflight requests
+  if (req.method === "OPTIONS") {
+    res.sendStatus(200);
+  } else {
+    next();
+  }
+});
+
+app.use(express.json());
 
 // Initialize Upstash Redis client
 const redis = new Redis({
@@ -51,6 +50,7 @@ const redis = new Redis({
 // Initialize default users in Redis store
 async function initializeUsers() {
   try {
+    // Check if users already exist
     const existingUsers = await redis.exists("users");
 
     if (!existingUsers) {
@@ -81,6 +81,7 @@ async function initializeUsers() {
         },
       };
 
+      // Store users in Redis
       await redis.set("users", defaultUsers);
       await redis.set("user_counter", 2);
 
@@ -104,17 +105,19 @@ app.get("/", async (req, res) => {
       createUser: "POST /api/users",
       updateUser: "PUT /api/users/:id",
       deleteUser: "DELETE /api/users/:id",
-      uploadImage: "POST /api/upload",
+      uploadImage: "POST /upload",
+      profile: "GET /api/profile",
+      updateProfile: "PUT /api/profile",
+      stats: "GET /api/stats",
     },
     storage: "Upstash Redis",
   });
 });
 
-// Image upload endpoint (public - no auth required)
-app.post("/api/upload", upload.single("file"), async (req, res) => {
+// Image upload endpoint (public - placed BEFORE auth middleware)
+app.post("/upload", upload.single("file"), async (req, res) => {
   try {
     console.log("Upload request received");
-    console.log("File:", req.file ? "Present" : "Missing");
 
     if (!req.file) {
       return res.status(400).json({
@@ -215,6 +218,7 @@ app.post("/auth", async (req, res) => {
         .json({ error: "Username and password are required" });
     }
 
+    // Get users from Redis store
     const usersData = await redis.get("users");
     const users = usersData
       ? typeof usersData === "string"
@@ -222,6 +226,7 @@ app.post("/auth", async (req, res) => {
         : usersData
       : {};
 
+    // Find user
     const user = Object.values(users).find(
       (u) => u.username === username && u.password === password
     );
@@ -230,11 +235,14 @@ app.post("/auth", async (req, res) => {
       return res.status(401).json({ error: "Invalid credentials" });
     }
 
+    // Generate access token
     const accessToken = crypto.randomBytes(32).toString("hex");
 
+    // Update user token in Redis store
     users[user.id] = { ...users[user.id], token: accessToken };
     await redis.set("users", users);
 
+    // Return user without password
     const { password: _, ...userWithoutPassword } = {
       ...user,
       token: accessToken,
@@ -261,6 +269,7 @@ app.post("/api/logout", async (req, res) => {
 
     const token = authHeader.split(" ")[1];
 
+    // Clear token from Redis
     const usersData = await redis.get("users");
     const users = usersData
       ? typeof usersData === "string"
@@ -293,6 +302,7 @@ async function validateToken(req, res, next) {
 
     const token = authHeader.split(" ")[1];
 
+    // Get users from Redis store
     const usersData = await redis.get("users");
     const users = usersData
       ? typeof usersData === "string"
@@ -313,9 +323,8 @@ async function validateToken(req, res, next) {
   }
 }
 
-// Apply auth middleware to protected routes only
-app.use("/api/users", validateToken);
-app.use("/api/logout", validateToken);
+// Apply auth middleware to all /api routes
+app.use("/api", validateToken);
 
 // GET /api/users with pagination & sorting
 app.get("/api/users", async (req, res) => {
@@ -327,13 +336,16 @@ app.get("/api/users", async (req, res) => {
         : usersData
       : {};
 
+    // Remove sensitive data
     let usersList = Object.values(users).map(
       ({ password, token, ...user }) => user
     );
 
+    // Pagination
     const skip = parseInt(req.query.skip) || 0;
     const limit = Math.min(parseInt(req.query.limit) || 10, 100);
 
+    // Filtering
     if (req.query.username) {
       usersList = usersList.filter((u) =>
         u.username.toLowerCase().includes(req.query.username.toLowerCase())
@@ -345,6 +357,7 @@ app.get("/api/users", async (req, res) => {
       );
     }
 
+    // Sorting
     if (req.query.sortBy) {
       const sortField = req.query.sortBy;
       const order = req.query.order === "desc" ? -1 : 1;
@@ -381,6 +394,7 @@ app.post("/api/users", async (req, res) => {
       });
     }
 
+    // Get existing users and counter
     const usersData = await redis.get("users");
     const users = usersData
       ? typeof usersData === "string"
@@ -389,6 +403,7 @@ app.post("/api/users", async (req, res) => {
       : {};
     const userCounter = (await redis.get("user_counter")) || 0;
 
+    // Check if user already exists
     const existingUser = Object.values(users).find(
       (u) => u.username === username || u.email === email
     );
@@ -399,6 +414,7 @@ app.post("/api/users", async (req, res) => {
       });
     }
 
+    // Create new user
     const newUserId = parseInt(userCounter) + 1;
     const newUser = {
       id: newUserId,
@@ -412,10 +428,12 @@ app.post("/api/users", async (req, res) => {
       createdAt: new Date().toISOString(),
     };
 
+    // Update users and counter in Redis
     users[newUserId] = newUser;
     await redis.set("users", users);
     await redis.set("user_counter", newUserId);
 
+    // Return user without password
     const { password: _, ...userWithoutPassword } = newUser;
     res.status(201).json({
       message: "User created successfully",
@@ -437,6 +455,7 @@ app.put("/api/users/:id", async (req, res) => {
       return res.status(400).json({ error: "Valid user ID is required" });
     }
 
+    // Get users from Redis
     const usersData = await redis.get("users");
     const users = usersData
       ? typeof usersData === "string"
@@ -448,6 +467,7 @@ app.put("/api/users/:id", async (req, res) => {
       return res.status(404).json({ error: "User not found" });
     }
 
+    // Check for duplicate username/email (excluding current user)
     if (username || email) {
       const duplicate = Object.values(users).find(
         (u) =>
@@ -463,6 +483,7 @@ app.put("/api/users/:id", async (req, res) => {
       }
     }
 
+    // Update user data
     const updatedUser = {
       ...users[userId],
       ...(username && { username }),
@@ -479,6 +500,7 @@ app.put("/api/users/:id", async (req, res) => {
     users[userId] = updatedUser;
     await redis.set("users", users);
 
+    // Return user without password
     const { password: _, token, ...userWithoutPassword } = updatedUser;
     res.json({
       message: "User updated successfully",
@@ -499,6 +521,7 @@ app.delete("/api/users/:id", async (req, res) => {
       return res.status(400).json({ error: "Valid user ID is required" });
     }
 
+    // Get users from Redis
     const usersData = await redis.get("users");
     const users = usersData
       ? typeof usersData === "string"
@@ -510,16 +533,112 @@ app.delete("/api/users/:id", async (req, res) => {
       return res.status(404).json({ error: "User not found" });
     }
 
+    // Prevent deleting yourself
     if (req.user.id === userId) {
       return res.status(400).json({ error: "Cannot delete your own account" });
     }
 
+    // Delete user
     delete users[userId];
     await redis.set("users", users);
 
     res.json({ message: "User deleted successfully" });
   } catch (error) {
     console.error("Delete user error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Get current user profile
+app.get("/api/profile", (req, res) => {
+  const { password, token, ...userProfile } = req.user;
+  res.json({
+    user: userProfile,
+  });
+});
+
+// Update current user profile
+app.put("/api/profile", async (req, res) => {
+  try {
+    const { username, email, password, birthDate, weight, image } = req.body;
+
+    // Get users from Redis
+    const usersData = await redis.get("users");
+    const users = usersData
+      ? typeof usersData === "string"
+        ? JSON.parse(usersData)
+        : usersData
+      : {};
+
+    // Check for duplicate username/email (excluding current user)
+    if (username || email) {
+      const duplicate = Object.values(users).find(
+        (u) =>
+          u.id !== req.user.id &&
+          ((username && u.username === username) ||
+            (email && u.email === email))
+      );
+
+      if (duplicate) {
+        return res.status(409).json({
+          error: "Username or email already exists",
+        });
+      }
+    }
+
+    // Update user data
+    const updatedUser = {
+      ...users[req.user.id],
+      ...(username && { username }),
+      ...(email && { email }),
+      ...(password && { password }),
+      ...(birthDate !== undefined && { birthDate }),
+      ...(weight !== undefined && {
+        weight: weight ? parseFloat(weight) : null,
+      }),
+      ...(image !== undefined && { image }),
+      updatedAt: new Date().toISOString(),
+    };
+
+    users[req.user.id] = updatedUser;
+    await redis.set("users", users);
+
+    // Return user without password
+    const { password: _, token, ...userWithoutPassword } = updatedUser;
+    res.json({
+      message: "Profile updated successfully",
+      user: userWithoutPassword,
+    });
+  } catch (error) {
+    console.error("Update profile error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Get stats
+app.get("/api/stats", async (req, res) => {
+  try {
+    const usersData = await redis.get("users");
+    const users = usersData
+      ? typeof usersData === "string"
+        ? JSON.parse(usersData)
+        : usersData
+      : {};
+    const userCounter = (await redis.get("user_counter")) || 0;
+
+    // Count active sessions
+    const activeSessions = Object.values(users).filter(
+      (u) => u.token && u.token !== ""
+    ).length;
+
+    res.json({
+      totalUsers: Object.keys(users).length,
+      activeSessions,
+      lastUserId: userCounter,
+      serverTime: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error("Stats error:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -537,7 +656,10 @@ app.use("*", (req, res) => {
       "POST /api/users",
       "PUT /api/users/:id",
       "DELETE /api/users/:id",
-      "POST /api/upload",
+      "POST /upload",
+      "GET /api/profile",
+      "PUT /api/profile",
+      "GET /api/stats",
     ],
   });
 });
@@ -560,14 +682,12 @@ app.use((error, req, res, next) => {
     });
   }
 
-  res.status(500).json({
-    success: false,
-    error: "Internal server error",
-  });
+  res.status(500).json({ error: "Internal server error" });
 });
 
 const PORT = process.env.PORT || 3000;
 
+// For local development
 if (process.env.NODE_ENV !== "production") {
   app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
